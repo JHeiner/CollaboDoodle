@@ -1,18 +1,18 @@
 <!DOCTYPE html>
 <head>
 <title>Simply Chat</title>
-<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js">
+</script>
+<script>
+  // ajax forms don't seem to support validation???
+  function blankInput() { ChatIn.value = "" }
+</script>
 </head>
 <body>
 <div>
-<div class="lift:comet?type=Chat">
-Chat log:
-<ul>
-<li>A message
-<li class="clearable">Another message
-<li class="clearable">A third message
+<div>
+<ul class="lift:comet?type=Chat"><li><i>(waiting for chat server)</i>
 </div>
 <div>
-<form class="lift:form.ajax">
-<input class="lift:ChatIn" id="chat_in">
-<input type="submit" value="Say Something">
+<form class="lift:form.ajax?postsubmit=blankInput()">
+<input class="lift:ChatIn" id="ChatIn" type="text">

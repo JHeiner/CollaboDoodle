@@ -1,13 +1,16 @@
 
 package code.comet
 
+import scala.xml.Elem
 import net.liftweb.http.{CometActor,CometListener,ListenerManager,RenderOut}
 import net.liftweb.actor.LiftActor
-import net.liftweb.util.ClearClearable
 
 case class Gol(sgsm:List[String])
 {
   def +(s:String) = Gol( s :: sgsm )
+
+  def lis = sgsm.foldLeft(List.empty[Elem]) {
+	(r,m) => <li>{m}</li> :: r }
 }
 
 class Chat extends CometActor with CometListener
@@ -19,7 +22,7 @@ class Chat extends CometActor with CometListener
   override def lowPriority = {
 	case x:Gol => gol = x ; reRender() }
 
-  def render = "li *" #> gol.sgsm & ClearClearable
+  def render = <ul>{ gol.lis }</ul>
 }
 object ChatServer extends LiftActor with ListenerManager
 {
@@ -28,5 +31,8 @@ object ChatServer extends LiftActor with ListenerManager
   def createUpdate = gol
 
   override def lowPriority = {
-	case s:String => gol += s ; updateListeners() }
+	case s:String =>
+	  val t = s.trim
+	  if ( t.nonEmpty ) {
+		gol += s ; updateListeners() } }
 }
