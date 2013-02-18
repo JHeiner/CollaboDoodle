@@ -4,20 +4,23 @@
 <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
 <script>
   var ChatUser = 0
-  function ChatAppend(user,text) {
-    $(ChatList).append("<li class="+(user==ChatUser?"mine":"other")+">"
-    	+"<small><i>"+user+"</i></small> "+text) }
+  function ChatAppend(user,nick,text) {
+    $(ChatList).append("<tr class="+(user==ChatUser?"mine":"other")+">"
+    	+"<td>"+user+"</td><td>"+nick+"</td><td>"+text+"</td></tr>") }
   function ChatReset() {
     $(ChatList).empty() }
 </script>
 <style>
-  li.other { background-color: #fec; }
-  li.mine { color: gray; }
+  .other { background-color: #fec; }
+  .mine { color: gray; }
 </style>
 </head>
 <body>
 <div id="ChatDiv">
-<ul id="ChatList"><li><i>waiting for chat server...</i></ul>
+<table>
+<tbody id="ChatList"><tr class="other"><td>0</td><td>init</td>
+<td>waiting for connection to chat server...</td></tr></tbody>
+</table>
 <input disabled class="lift:comet?type=Chat">
 </div>
 </body>
