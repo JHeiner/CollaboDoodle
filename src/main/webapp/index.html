@@ -4,15 +4,23 @@
 <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
 <script>
   var ChatUser = 0
-  function ChatAppend(user,nick,text) {
-    $(ChatList).append("<tr class="+(user==ChatUser?"mine":"other")+">"
-    	+"<td>"+user+"</td><td>"+nick+"</td><td>"+text+"</td></tr>") }
+  function ChatAppend(user,command,nick,text) {
+    var trClass = ( user == ChatUser ? "mine" : "other" )
+    if (!command) { if (nick) command = "<i>" }
+    else command = "<span style=float:left>"+command+"&nbsp;</span>"
+    $(ChatList).append(
+      "<tr class="+trClass+">"+
+        "<td class=right>"+user+
+        "<td class=right>"+command+nick+
+        "<td>"+text+
+       "</tr>") }
   function ChatReset() {
     $(ChatList).empty() }
 </script>
 <style>
   .other { background-color: #fec; }
   .mine { color: gray; }
+  .right { text-align: right }
 </style>
 </head>
 <body>
