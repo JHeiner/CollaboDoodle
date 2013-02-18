@@ -75,14 +75,19 @@ extends StatefulComet with CometListener
 	val text = escaped.result.trim
 	i = text.indexOf(' ')
 	if ( i < 0 ) i = text.length
-	val before = text.substring( 0, i )
+	val before = text.substring( 0, i ).toLowerCase
 	val after = text.substring( i ).trim
 	if ( before match {
-	  case "&#x2F;nick" =>
-		ChatServer ! Message( "0", "/nick",
-			 user+": "+nick+(if(after==nick)""else" -> "+after) )
+	  case "&#x2f;nick" =>
+		val from = if ( nick.nonEmpty ) (" "+nick) else ""
+		val into = if ( after == nick ) "" else (" \u27a1 "+after)
+		ChatServer ! Message( "0", "/nick", user+from+into )
 		nick = after
 		false
+	  case "&#x2f;time" =>
+		if ( after.nonEmpty ) true else {
+		  ChatServer ! ChatServer.timeStamp
+		  false }
 	  case _ => true }) ChatServer ! Message( user, nick, text ) }
 
   override def render:RenderOut = Seq(
@@ -95,8 +100,12 @@ object ChatServer
 extends LiftActor with ListenerManager
 {
   val userCount = new java.util.concurrent.atomic.AtomicInteger
+  val dateRFC822 = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+  val dateSimple = new java.text.SimpleDateFormat( dateRFC822 )
+  def dateCurrent = dateSimple.format( new java.util.Date )
+  def timeStamp = Message( "0", "/time", dateCurrent )
 
-  private var history = History.empty + Message( "0", "startup", "Welcome" )
+  private var history = History.empty + timeStamp
   private def addMessage( m:Message ) { history += m ; updateListeners() }
   def createUpdate = history
 
