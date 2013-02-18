@@ -22,7 +22,7 @@ object Boot
  LiftRules.ajaxEnd = Full(() => LiftRules.jsArtifacts.hide("ajax-loader").cmd)
  LiftRules.early.append(_.setCharacterEncoding("UTF-8"))
 	LiftRules.htmlProperties.default.set(html5 _)
-	mongo
+//	mongo
   }
 
   def html5(r:Req) = new Html5Properties(r.userAgent)
