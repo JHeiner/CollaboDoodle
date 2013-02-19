@@ -20,7 +20,6 @@ extends DeltaTrait
 object History
 {
   val empty = History( Nil )
-  val reset:JsCmd = JE.Call( "ChatReset" )
 }
 case class History( messages:List[Message] )
 extends CometState[Message,History]
@@ -39,9 +38,10 @@ with net.liftweb.common.Logger
     error( "!!! render should not be called, Chat renders the history" )
     NodeSeq.Empty }
 
-  def toJs:JsCmd =
-    messages.foldRight( History.reset ) {
-      ( m, j ) => JsCmds.CmdPair( j, m.toJs ) }
+  def toJs( user:String ):JsCmd = {
+	val setUser:JsCmd = JsCmds.JsCrVar( "ChatUser", user )
+    messages.foldRight( setUser ) {
+      ( m, j ) => JsCmds.CmdPair( j, m.toJs ) } }
 }
 
 case class Input( chat:Chat, dangerous:String )
@@ -62,10 +62,8 @@ extends StatefulComet with CometListener
   def sendInput( s:String ) { ChatServer ! Input( this, s ) }
 
   override def render:RenderOut = Seq(
-    SHtml.ajaxForm( SHtml.text( "", sendInput, "id" -> "ChatInput" ),
-                    JsCmds.Noop, JsCmds.SetValById( "ChatInput", "" ) ),
-    JsCmds.Script( JsCmds.CmdPair(
-      JsCmds.SetExp( JE.JsRaw( "ChatUser" ), user ), state.toJs )) )
+    SHtml.ajaxForm( SHtml.text( "", sendInput, "id" -> "ChatInput" ) ),
+    JsCmds.Script( state.toJs( user ) ) )
 }
 object ChatServer
 extends LiftActor with ListenerManager
