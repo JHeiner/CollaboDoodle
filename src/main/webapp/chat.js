@@ -1,112 +1,159 @@
 
 function ChatAppend( user, command, nick, text ) {
-    var array = [];
-    function append( user, command, nick, text ) {
-    	array.push( [ user, command, nick, text ] ); }
-    append( user, command, nick, text );
-    append.Loaded = array;
-    // do the above setup once, from then on just do append
-    ChatAppend = append; }
+	var array = [];
+	function append( user, command, nick, text ) {
+		array.push( [ user, command, nick, text ] ); }
+	append( user, command, nick, text );
+	append.Loaded = array;
+	// do the above setup once, from then on just do append
+	ChatAppend = append; }
+
+function ChatCheck() {}
 
 $(function(){
 
-    var loaded = ChatAppend.Loaded;
-    var list = $(ChatList);
+	function toBottom() {
+		if ( ChatAutoScroll.checked )
+			ChatHistory.scrollTop = ChatHistory.scrollHeight; }
+	$(ChatAutoScroll).click(toBottom);
 
-    var input = {
- 	value:"", start:0, end:0, element:ChatInput,
-	submit:function(temporary) {
-	    this.value = this.element.value;
-	    this.start = this.element.selectionStart;
-	    this.end = this.element.selectionEnd;
-	    this.element.value = temporary;
-	    this.element.form.onsubmit(); },
-	restore:function() {
-	    this.element.value = this.value;
-	    this.element.setSelectionRange( this.start, this.end );
-	    this.value = ""; this.start = this.end = 0; } };
+	var events = new Doodles.Events(ChatSVG,window);
+	events.attach();
+	var shapes = events.dom.shapes;
+	ChatDoodles = { mine: events };
 
-    var draw = {
-	timer:undefined, buffer:[], line:undefined,
-	push:function(shape) {
-    	    this.buffer.push( shape );
-    	    if ( this.timer ) clearTimeout( this.timer );
-    	    this.timer = setTimeout( this.send, 1000 ); },
-	sendUnbound:function() {
-    	    this.timer = undefined;
-	    input.submit( '['+this.buffer.join(',')+']' );
-    	    this.buffer.length = 0; } };
-    draw.send = draw.sendUnbound.bind(draw);
+	var list = $(ChatList);
+	var recognizer =
+		/^doodle(?::(?:u|[dsm]-?[0-9]+,-?[0-9]+|[rh][ft][ft](,[0-9]+)+))+$/;
 
-    var events = new Doodles.Events(ChatSVG,window);
-    events.attach();
+	function delta( user, command, nick, text ) {
+		var mine = ( user == ChatUser );
+		var matched = recognizer.test( text );
+		if ( ! command ) { if ( nick ) command = '<i>'; }
+		else command = '<span class=left>'+command+'&nbsp;</span>';
+		list.append(
+			'<tr class='+( mine ? 'mine' : 'other' )+'>'+
+				'<td class=right>'+user+
+				'<td class=right>'+command+nick+
+				'<td>'+( matched ? text.small() : text ) );
+		toBottom();
+		if ( ! matched ) return null;
+		if ( mine ) return text;
+		var doodles = ChatDoodles[user];
+		if ( ! doodles ) {
+			doodles = new Doodles.Events(ChatSVG,window);
+			ChatSVG.insertBefore( doodles.dom.undoCTM, events.dom.undoCTM );
+			doodles.color.normal = '#666';
+			ChatDoodles[user] = doodles; }
+		doodles.dom.shapes.interpret( text );
+		return null; }
 
-    function toBottom() {
-      	if ( ChatAutoScroll.checked )
-            ChatHistory.scrollTop = ChatHistory.scrollHeight; }
+	function makePoint( x, y ) {
+		return { x:x, y:y }; }
+	function makeSegment( prefix, x, y ) {
+		return prefix + x + ',' + y; }
+	function pointToSegment( prefix, point ) {
+		return makeSegment( prefix, point.x, point.y ); }
+	function segmentToPoint( segment ) {
+		var comma = segment.indexOf(',');
+		var x = segment.substring( 1, comma );
+		var y = segment.substring( comma + 1 );
+		return makePoint( Number(x), Number(y) ); }
 
-    $(ChatAutoScroll).click(toBottom);
+	Doodles.Shapes.prototype.d = function( segment ) {
+		this.dot( segmentToPoint( segment ) ); };
+	Doodles.Shapes.prototype.s = function( segment ) {
+		var point = segmentToPoint( segment );
+		this.currentLine = this.lineStart( point );
+		this.previousPoint = point; };
+	Doodles.Shapes.prototype.m = function( segment ) {
+		var comma = segment.indexOf(',');
+		var x = segment.substring( 1, comma );
+		var y = segment.substring( comma + 1 );
+		var point = this.previousPoint;
+		point.x += Number(x); point.y += Number(y);
+		this.lineMore( this.currentLine, point ); }
+	Doodles.Shapes.prototype.u = function( segment ) {
+		this.unhilight(); }
+	Doodles.Shapes.prototype.r = function( segment ) {
+		var action = (segment.charAt(0)=='r') ?
+			this.removeShape : this.hilightShape;
+		var subsequentSiblings = (segment.charAt(1)=='t');
+		var sorted = (segment.charAt(2)=='t');
+		var list = segment.substring(4).split(',');
+		var children = this.doodles;
+		for ( var i = list.length - 1 ; i >= 0 ; -- i )
+			list[i] = children[list[i]];
+		this.forSelected(action,subsequentSiblings,sorted,list); }
+	Doodles.Shapes.prototype.h = Doodles.Shapes.prototype.r;
 
-    ChatDoodles = { mine: events };
+	Doodles.Shapes.prototype.interpret = function( text ) {
+		if ( ! text ) return;
+		var array = text.split(':');
+		for ( var i = 1 ; i < array.length ; ++ i ) {
+			var segment = array[i];
+			var method = this[segment.charAt(0)];
+			if ( method ) method.call( this, segment );
+			else console.error( 'interpret', segment, this ); } }
 
-    function interpret(user,text) { try {
-	text = text.replace(/&quot;/g,'"');
-	var json = JSON.parse(text);
-	var doodles = ChatDoodles[user];
-	if ( ! doodles )
-	    doodles = ChatDoodles[user] = new Doodles.Events(ChatSVG,window);
-	var line;
-	json.forEach(function(element,index,array){
-	    switch(element[0]) {
-	    case "d":
- 		doodles.dom.shapes.dot({x:element[1],y:element[2]});
-		break;
-	    case "s":
-		line = undefined;
-		break;
-	    case "m":
-		if (!line)
-		    line = doodles.dom.shapes.lineStart({x:element[1],y:element[2]});
-		else doodles.dom.shapes.lineMore(line,{x:element[1],y:element[2]});
-		break; } });
-	} catch ( e ) { console.log(e,text); } }
+	list.empty();
+	if ( ChatAppend.Loaded )
+		ChatAppend.Loaded.forEach( function( element, index, array ) {
+			shapes.interpret( delta.apply( null, element ) ); });
 
+	var timer = null;
+	var buffer = '';
+	var limit = 120;
+	function push(segment) {
+		buffer += ':'+segment;
+		ChatCheck(); }
+	function send() {
+		if ( timer ) clearTimeout( timer );
+		timer = null;
+		var chop = ( buffer.length < limit ) ? buffer.length
+			: buffer.lastIndexOf( ':', limit );
+		ChatHidden.value = 'doodle' + buffer.substring(0,chop);
+		buffer = buffer.substring(chop);
+		ChatHidden.form.onsubmit(); }
+	ChatCheck = function() {
+		ChatHidden.value = '';
+		if ( buffer.length >= limit ) send();
+		else if ( buffer.length > 0 ) {
+			if ( timer ) clearTimeout( timer );
+			timer = setTimeout( send, 500 ); } }
 
-    // change again to be what should happen for deltas...
-    ChatAppend = function( user, command, nick, text ) {
-	var mine = ( user == ChatUser );
-	var small = ( text.charAt(0) == '[' );
-    	if ( !command ) { if ( nick ) command = '<i>'; }
-    	else command = '<span class=left>'+command+'&nbsp;</span>';
-    	list.append(
-            '<tr class='+( mine ? 'mine' : 'other' )+'>'+
-            	'<td class=right>'+user+
-            	'<td class=right>'+command+nick+
-            	'<td>'+( small ? text.small() : text ) );
-	if ( small && ! mine ) interpret( user, text );
-    	toBottom();
-	input.restore(); }
+	var lastPoint = null;
+	var hilighted = false;
+	shapes.dot = function(center) {
+		push( pointToSegment( 'd', center ) );
+		Doodles.Shapes.prototype.dot.call(this,center); };
+	// lineStart calls lineMore to insert the first point
+	shapes.lineMore = function(line,more) {
+		push( lastPoint
+			? makeSegment( 'm', (more.x-lastPoint.x), (more.y-lastPoint.y) )
+			: pointToSegment( 's', more ) );
+		lastPoint = makePoint( more.x, more.y );
+		Doodles.Shapes.prototype.lineMore.call(this,line,more); };
+	shapes.lineEnd = function(line) {
+		lastPoint = null;
+		return Doodles.Shapes.prototype.lineEnd.call(this,line); };
+	shapes.unhilight = function() {
+		if ( hilighted ) { push( 'u' ); hilighted = false; }
+		Doodles.Shapes.prototype.unhilight.call(this); };
+	shapes.forSelected = function(action,subsequentSiblings,sorted,list) {
+		if ( list.length > 0 ) {
+			var segment =
+				(action == Doodles.Shapes.prototype.removeShape)?'r':'h';
+			if ( segment == 'h' ) hilighted = true;
+			segment += (subsequentSiblings?'t':'f')+(sorted?'t':'f');
+			var children = this.doodles;
+			for ( var i = 0 ; i < list.length ; ++ i )
+				segment += ','+Array.prototype.indexOf.call(children,list[i]);
+			push( segment ); }
+		return Doodles.Shapes.prototype.forSelected.call(
+			this,action,subsequentSiblings,sorted,list); };
 
-    ChatDoodles[ChatUser] = events;
-
-    list.empty();
-    if (loaded) loaded.forEach(function(element,index,array){
-	ChatAppend.apply(null,element);
-	var user = element[0];
-	var text = element[3];
-	var mine = ( user == ChatUser );
-	var small = ( text.charAt(0) == '[' );
-	if (small && mine ) interpret(user,text); });
-    loaded = undefined;
-
-    events.dom.shapes.dot = function(center) {
-        draw.push( '["d",'+center.x+','+center.y+']' );
-        this.__proto__.dot.call(this,center); }
-    events.dom.shapes.lineMore = function(line,more) {
-        if ( line != draw.line ) {
-            draw.push( '"s"' );
-            draw.line = line; }
-        draw.push( '["m",'+more.x+','+more.y+']' );
-        this.__proto__.lineMore.call(this,line,more); }
+	ChatAppend = function( user, command, nick, text ) {
+		delta( user, command, nick, text ); } // note: no return
 
 });

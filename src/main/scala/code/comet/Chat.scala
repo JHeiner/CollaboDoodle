@@ -62,7 +62,10 @@ extends StatefulComet with CometListener
   def sendInput( s:String ) { ChatServer ! Input( this, s ) }
 
   override def render:RenderOut = Seq(
-    SHtml.ajaxForm( SHtml.text( "", sendInput, "id" -> "ChatInput" ) ),
+    SHtml.ajaxForm( SHtml.text( "", sendInput, "id"->"ChatInput" ),
+	                JsCmds.Noop, JE.JsRaw( "ChatInput.value=''" ) ),
+    SHtml.ajaxForm( SHtml.hidden( sendInput _, "doodle", "id"->"ChatHidden" ),
+	                JsCmds.Noop, JE.JsRaw( "ChatCheck()" ) ),
     JsCmds.Script( state.toJs( user ) ) )
 }
 object ChatServer

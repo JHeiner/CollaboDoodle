@@ -92,6 +92,8 @@ Doodles.Shapes.prototype =
 		this.lineMore(l,start);
 		this.svg.appendChild(l);
 		return l; },
+	lineEnd: function(line) {
+		return line.points; },
 	pick: function(point) {
 		// webkit getIntersectionList is very buggy (does bbox, completely
 		// ignoring pointer-events), but when fixed it should be used instead
@@ -308,15 +310,12 @@ Doodles.Pointer.prototype =
 		var x = one.x - two.x; var y = one.y - two.y;
 		return 10 >= x*x + y*y; },
 	pathEnd: function() {
-		var ps = this.polyline.points;
+		var ps = this.shapes.lineEnd(this.polyline);
 		var n = ps.numberOfItems;
-		var click = ( n == 1
-			|| (n == 2 && this.nearby(ps.getItem(1),ps.getItem(0))) );
-		this.polyline.setAttribute('pointer-events','none');
-		if (click && this.erase(false))
-			this.polyline.remove();
-		else
-			this.polyline.removeAttribute('pointer-events');
+		if ( n == 1 || (n == 2 && this.nearby(ps.getItem(1),ps.getItem(0))) ) {
+			this.polyline.setAttribute('pointer-events','none');
+			if (this.erase(false)) this.polyline.remove(); else
+				this.polyline.removeAttribute('pointer-events'); }
 		this.polyline = null; },
 	rubberSet: function() {
 		this.dom.rubber2P(this.mark,this.page);
