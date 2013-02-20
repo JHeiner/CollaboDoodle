@@ -134,9 +134,9 @@ $(function(){
 			: pointToSegment( 's', more ) );
 		lastPoint = makePoint( more.x, more.y );
 		Doodles.Shapes.prototype.lineMore.call(this,line,more); };
-	shapes.lineEnd = function(line) {
+	events.pointer.pathEnd = function() {
 		lastPoint = null;
-		return Doodles.Shapes.prototype.lineEnd.call(this,line); };
+		Doodles.Pointer.prototype.pathEnd.call(this); };
 	shapes.unhilight = function() {
 		if ( hilighted ) { push( 'u' ); hilighted = false; }
 		Doodles.Shapes.prototype.unhilight.call(this); };
