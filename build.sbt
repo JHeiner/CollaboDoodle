@@ -14,6 +14,5 @@ libraryDependencies ++= {
   Seq(
 	"net.liftweb" %% "lift-webkit" % liftVersion % "compile",
 	"org.eclipse.jetty" % "jetty-webapp" % "8.1.9.v20130131" % "container,test",
-	"org.slf4j" % "slf4j-jdk14" % "1.7.2" % "container,test",
-	"net.liftweb" %% "lift-mongodb-record" % liftVersion ) }
+	"org.slf4j" % "slf4j-jdk14" % "1.7.2" % "container,test" ) }
 
