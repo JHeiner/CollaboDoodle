@@ -17,36 +17,87 @@ $(function(){
 			ChatHistory.scrollTop = ChatHistory.scrollHeight; }
 	$(ChatAutoScroll).click(toBottom);
 
-	var events = new Doodles.Events(ChatSVG,window);
-	events.attach();
-	var shapes = events.dom.shapes;
-	ChatDoodles = { mine: events };
+	// call 'delta' to process any incoming chat traffic.
+	// at page load time the chat history is delivered inside the HTML,
+	// and 'ChatAppend' above gathers the deltas so we can replay them.
+	// from that point on deltas come from the server via ajax.
 
 	var list = $(ChatList);
-	var recognizer =
+	var data = {};
+
+	var events = new Doodles.Events(ChatSVG,window);
+	data[ChatUser] = { events: events };
+
+	var isColor = /%#?[0-9A-Za-z]+$/;
+	var isDoodle =
 		/^doodle(?::(?:u|[dsm]-?\d+,-?\d+|[rh][ft][ft]\d+(,\d+)*))+$/;
 
 	function delta( user, command, nick, text ) {
 		var mine = ( user == ChatUser );
-		var matched = recognizer.test( text );
-		if ( ! command ) { if ( nick ) command = '<i>'; }
-		else command = '<span class=left>'+command+'&nbsp;</span>';
+		var info = data[ command ? nick : user ];
+		var color = info ? info.color : null;
+		if ( command == '/nick' ) {
+			if ( ! info ) info = data[nick] = {};
+			color = isColor.exec( text );
+			if ( color ) {
+				info.color = color = color[0].substring(1);
+				if ( info.events ) info.events.color.normal = color; }
+			else {
+				delete info.color;
+				if ( info.events ) info.events.color.normal =
+					( nick == ChatUser ) ? '#000' : '#666'; } }
+		var matched = isDoodle.test( text );
+		if ( command ) command =
+			'<span class=ChatCommand>'+command+'&nbsp;</span>';
+		if ( nick ) {
+			var redundant = isColor.exec( nick );
+			if ( redundant ) nick =
+				nick.substring( 0, nick.length - redundant[0].length ) +
+					'<span class="ChatNickColor">'+redundant[0]+'</span>'; }
 		list.append(
-			'<tr class='+( mine ? 'mine' : 'other' )+'>'+
-				'<td class=right>'+user+
-				'<td class=right>'+command+nick+
-				'<td>'+( matched ? text.small() : text ) );
+			'<tr class='+( mine ? 'mine' : 'other' )
+				+( color ? ' style=color:'+color : '' )+'>'
+				+'<td class="col1">'+user
+				+'<td class="col2">'+command+nick
+				+'<td class="col3">'+( matched ? text.small() : text ) );
 		toBottom();
 		if ( ! matched ) return null;
 		if ( mine ) return text;
-		var doodles = ChatDoodles[user];
-		if ( ! doodles ) {
-			doodles = new Doodles.Events(ChatSVG,window);
-			ChatSVG.insertBefore( doodles.dom.undoCTM, events.dom.undoCTM );
-			doodles.color.normal = '#666';
-			ChatDoodles[user] = doodles; }
-		doodles.dom.shapes.interpret( text );
+		if ( ! info ) info = data[user] = {}; // never [nick] if matched
+		if ( ! info.events ) {
+			info.events = new Doodles.Events(ChatSVG,window);
+			ChatSVG.insertBefore( info.events.dom.undoCTM, events.dom.undoCTM );
+			info.events.color.normal = color ? color : '#666'; }
+		info.events.dom.shapes.interpret( text );
 		return null; }
+
+	// use 'send' to send a doodle segment to the server.
+	// it takes care of buffering them: if a bunch happen all at once
+	// we bundle them into packets instead of sending individual segments.
+
+	var timer = null;
+	var buffer = '';
+	var limit = 200;
+	function send(segment) {
+		buffer += ':'+segment;
+		ChatCheck(); }
+	function sendNow() {
+		if ( timer ) { clearTimeout( timer ); timer = null; }
+		if ( buffer.length <= 0 ) return;
+		var chop = ( buffer.length < limit ) ? buffer.length
+			: buffer.lastIndexOf( ':', limit );
+		ChatHidden.value = 'doodle' + buffer.substring(0,chop);
+		buffer = buffer.substring(chop);
+		ChatHidden.form.onsubmit(); }
+	ChatCheck = function() {
+		ChatHidden.value = '';
+		if ( buffer.length >= limit ) { sendNow(); return; }
+		if ( timer ) { clearTimeout( timer ); timer = null; }
+		if ( buffer.length > 0 ) timer = setTimeout( sendNow, 500 ); }
+
+	// the interpreter chops up packets of doodle segments,
+	// then dispatches each segment to a method that handles that segment type.
+	// each handler method makes calls to the appropriate Doodles function.
 
 	function makePoint( x, y ) {
 		return { x:x, y:y }; }
@@ -97,40 +148,30 @@ $(function(){
 			if ( m ) m.call( this, segment );
 			else console.error( 'interpret', segment, this ); } }
 
+	// now that interpretation is all set up we can replay the history.
+	// note that we call shapes.interpret to do the local user's history.
+	// delta normally ignores the local user's doodling commands.
+	// important that we not see this replay as the user really doodling.
+
+	var shapes = events.dom.shapes;
 	list.empty();
 	if ( ChatAppend.Loaded )
 		ChatAppend.Loaded.forEach( function( element, index, array ) {
 			shapes.interpret( delta.apply( null, element ) ); });
 
-	var timer = null;
-	var buffer = '';
-	var limit = 200;
-	function push(segment) {
-		buffer += ':'+segment;
-		ChatCheck(); }
-	function send() {
-		if ( timer ) { clearTimeout( timer ); timer = null; }
-		if ( buffer.length <= 0 ) return;
-		var chop = ( buffer.length < limit ) ? buffer.length
-			: buffer.lastIndexOf( ':', limit );
-		ChatHidden.value = 'doodle' + buffer.substring(0,chop);
-		buffer = buffer.substring(chop);
-		ChatHidden.form.onsubmit(); }
-	ChatCheck = function() {
-		ChatHidden.value = '';
-		if ( buffer.length >= limit ) { send(); return; }
-		if ( timer ) { clearTimeout( timer ); timer = null; }
-		if ( buffer.length > 0 ) timer = setTimeout( send, 500 ); }
+	// done with the history replay, so now we put our hooks into our
+	// local Doodles objects to intercept real doodling, format the event
+	// data into segments, and send those to the server.
 
 	var lastPoint = null;
 	var unhilighted = true;
 	var lastHilighted = '';
 	shapes.dot = function(center) {
-		push( pointToSegment( 'd', center ) );
+		send( pointToSegment( 'd', center ) );
 		Doodles.Shapes.prototype.dot.call(this,center); };
 	// lineStart calls lineMore to insert the first point
 	shapes.lineMore = function(line,more) {
-		push( lastPoint
+		send( lastPoint
 			? makeSegment( 'm', (more.x-lastPoint.x), (more.y-lastPoint.y) )
 			: pointToSegment( 's', more ) );
 		lastPoint = makePoint( more.x, more.y );
@@ -139,7 +180,7 @@ $(function(){
 		lastPoint = null;
 		Doodles.Pointer.prototype.pathEnd.call(this); };
 	shapes.unhilight = function() {
-		if ( !unhilighted ) { push( 'u' ); unhilighted = true; }
+		if ( !unhilighted ) { send( 'u' ); unhilighted = true; }
 		Doodles.Shapes.prototype.unhilight.call(this); };
 	shapes.forSelected = function(action,subsequentSiblings,sorted,list) {
 		if ( list.length > 0 ) {
@@ -153,15 +194,19 @@ $(function(){
 			var segment = ( (remove?'r':'h')
 				+ (subsequentSiblings?'t':'f') + (sorted?'t':'f')
 				+ array.substring(1) );
-			if ( remove ) push( segment ); else {
+			if ( remove ) send( segment ); else {
 				if ( /:u$/.test(buffer) && lastHighlighted == array )
 					buffer = buffer.substring( 0, buffer.length - 2 );
-				else { push( segment ); lastHighlighted = array; }
+				else { send( segment ); lastHighlighted = array; }
 				unhilighted = false; } }
 		return Doodles.Shapes.prototype.forSelected.call(
 			this,action,subsequentSiblings,sorted,list); };
 
+	// almost done, just need to hook up our event handlers...
+
 	ChatAppend = function( user, command, nick, text ) {
 		delta( user, command, nick, text ); } // note: no return
+
+	events.attach();
 
 });
