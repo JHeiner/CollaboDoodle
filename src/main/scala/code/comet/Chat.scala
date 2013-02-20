@@ -39,12 +39,12 @@ with net.liftweb.common.Logger
     NodeSeq.Empty }
 
   def toJs( user:String ):JsCmd = {
-	val setUser:JsCmd = JsCmds.JsCrVar( "ChatUser", user )
+    val setUser:JsCmd = JsCmds.JsCrVar( "ChatUser", user )
     messages.foldRight( setUser ) {
       ( m, j ) => JsCmds.CmdPair( j, m.toJs ) } }
 }
 
-case class Input( chat:Chat, dangerous:String )
+case class Input( chat:Chat, doodle:Boolean, dangerous:String )
 
 class Chat
 extends StatefulComet with CometListener
@@ -59,13 +59,14 @@ extends StatefulComet with CometListener
   def registerWith = ChatServer
   val user = ChatServer.userCount.incrementAndGet.toString
   var nick = ""
-  def sendInput( s:String ) { ChatServer ! Input( this, s ) }
+  def sendInput( s:String ) { ChatServer ! Input( this, false, s ) }
+  def sendDoodle( s:String ) { ChatServer ! Input( this, true, s ) }
 
   override def render:RenderOut = Seq(
     SHtml.ajaxForm( SHtml.text( "", sendInput, "id"->"ChatInput" ),
-	                JsCmds.Noop, JE.JsRaw( "ChatInput.value=''" ) ),
-    SHtml.ajaxForm( SHtml.hidden( sendInput _, "doodle", "id"->"ChatHidden" ),
-	                JsCmds.Noop, JE.JsRaw( "ChatCheck()" ) ),
+                    JsCmds.Noop, JE.JsRaw( "ChatInput.value=''" ) ),
+    SHtml.ajaxForm( SHtml.hidden( sendDoodle _, "doodle", "id"->"ChatHidden" ),
+                    JsCmds.Noop, JE.JsRaw( "ChatCheck()" ) ),
     JsCmds.Script( state.toJs( user ) ) )
 }
 object ChatServer
@@ -99,8 +100,8 @@ extends LiftActor with ListenerManager
   def createUpdate = history
 
   override def lowPriority = {
-    case Input( chat, dangerous ) =>
-      val trimmed = escape( dangerous ).trim
+    case Input( chat, doodle, dangerous ) =>
+      val trimmed = noInputDoodle( doodle, escape( dangerous ).trim )
       var space = trimmed.indexOf(' ')
       if ( space < 0 ) space = trimmed.length
       val before = trimmed.substring( 0, space ).toLowerCase
@@ -122,6 +123,10 @@ extends LiftActor with ListenerManager
         addMessage( admin.get ) // admin might have empty text
       else if ( trimmed.nonEmpty ) // but empty user messages are dropped
         addMessage( userMessage( chat, trimmed ) ) }
+
+  def noInputDoodle( doodle:Boolean, trimmed:String ) =
+	if ( doodle || ! trimmed.startsWith("doodle:") ) trimmed
+	else "doodle :"+trimmed.substring(7);
 
   def escape( dangerous:String ) = {
     val builder = new StringBuilder( dangerous.length )

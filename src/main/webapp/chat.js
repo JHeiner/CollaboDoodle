@@ -24,7 +24,7 @@ $(function(){
 
 	var list = $(ChatList);
 	var recognizer =
-		/^doodle(?::(?:u|[dsm]-?[0-9]+,-?[0-9]+|[rh][ft][ft](,[0-9]+)+))+$/;
+		/^doodle(?::(?:u|[dsm]-?\d+,-?\d+|[rh][ft][ft]\d+(,\d+)*))+$/;
 
 	function delta( user, command, nick, text ) {
 		var mine = ( user == ChatUser );
@@ -60,40 +60,41 @@ $(function(){
 		var y = segment.substring( comma + 1 );
 		return makePoint( Number(x), Number(y) ); }
 
-	Doodles.Shapes.prototype.d = function( segment ) {
+	var methods = {};
+	methods[100]/*d*/ = function( segment ) {
 		this.dot( segmentToPoint( segment ) ); };
-	Doodles.Shapes.prototype.s = function( segment ) {
+	methods[115]/*s*/ = function( segment ) {
 		var point = segmentToPoint( segment );
 		this.currentLine = this.lineStart( point );
 		this.previousPoint = point; };
-	Doodles.Shapes.prototype.m = function( segment ) {
+	methods[109]/*m*/ = function( segment ) {
 		var comma = segment.indexOf(',');
 		var x = segment.substring( 1, comma );
 		var y = segment.substring( comma + 1 );
 		var point = this.previousPoint;
 		point.x += Number(x); point.y += Number(y);
-		this.lineMore( this.currentLine, point ); }
-	Doodles.Shapes.prototype.u = function( segment ) {
-		this.unhilight(); }
-	Doodles.Shapes.prototype.r = function( segment ) {
-		var action = (segment.charAt(0)=='r') ?
+		this.lineMore( this.currentLine, point ); };
+	methods[117]/*u*/ = function( segment ) {
+		this.unhilight(); };
+	methods[114]/*r*/ = function( segment ) {
+		var action = (segment.charCodeAt(0)==114/*'r'*/) ?
 			this.removeShape : this.hilightShape;
-		var subsequentSiblings = (segment.charAt(1)=='t');
-		var sorted = (segment.charAt(2)=='t');
-		var list = segment.substring(4).split(',');
+		var subsequentSiblings = (segment.charCodeAt(1)==116/*'t'*/);
+		var sorted = (segment.charCodeAt(2)==116/*'t'*/);
+		var list = segment.substring(3).split(',');
 		var children = this.doodles;
 		for ( var i = list.length - 1 ; i >= 0 ; -- i )
 			list[i] = children[list[i]];
-		this.forSelected(action,subsequentSiblings,sorted,list); }
-	Doodles.Shapes.prototype.h = Doodles.Shapes.prototype.r;
+		this.forSelected(action,subsequentSiblings,sorted,list); };
+	methods[104]/*h*/ = methods[114]/*r*/;
 
 	Doodles.Shapes.prototype.interpret = function( text ) {
 		if ( ! text ) return;
 		var array = text.split(':');
 		for ( var i = 1 ; i < array.length ; ++ i ) {
 			var segment = array[i];
-			var method = this[segment.charAt(0)];
-			if ( method ) method.call( this, segment );
+			var m = methods[segment.charCodeAt(0)];
+			if ( m ) m.call( this, segment );
 			else console.error( 'interpret', segment, this ); } }
 
 	list.empty();
@@ -103,13 +104,13 @@ $(function(){
 
 	var timer = null;
 	var buffer = '';
-	var limit = 120;
+	var limit = 200;
 	function push(segment) {
 		buffer += ':'+segment;
 		ChatCheck(); }
 	function send() {
-		if ( timer ) clearTimeout( timer );
-		timer = null;
+		if ( timer ) { clearTimeout( timer ); timer = null; }
+		if ( buffer.length <= 0 ) return;
 		var chop = ( buffer.length < limit ) ? buffer.length
 			: buffer.lastIndexOf( ':', limit );
 		ChatHidden.value = 'doodle' + buffer.substring(0,chop);
@@ -117,13 +118,13 @@ $(function(){
 		ChatHidden.form.onsubmit(); }
 	ChatCheck = function() {
 		ChatHidden.value = '';
-		if ( buffer.length >= limit ) send();
-		else if ( buffer.length > 0 ) {
-			if ( timer ) clearTimeout( timer );
-			timer = setTimeout( send, 500 ); } }
+		if ( buffer.length >= limit ) { send(); return; }
+		if ( timer ) { clearTimeout( timer ); timer = null; }
+		if ( buffer.length > 0 ) timer = setTimeout( send, 500 ); }
 
 	var lastPoint = null;
-	var hilighted = false;
+	var unhilighted = true;
+	var lastHilighted = '';
 	shapes.dot = function(center) {
 		push( pointToSegment( 'd', center ) );
 		Doodles.Shapes.prototype.dot.call(this,center); };
@@ -138,18 +139,25 @@ $(function(){
 		lastPoint = null;
 		Doodles.Pointer.prototype.pathEnd.call(this); };
 	shapes.unhilight = function() {
-		if ( hilighted ) { push( 'u' ); hilighted = false; }
+		if ( !unhilighted ) { push( 'u' ); unhilighted = true; }
 		Doodles.Shapes.prototype.unhilight.call(this); };
 	shapes.forSelected = function(action,subsequentSiblings,sorted,list) {
 		if ( list.length > 0 ) {
-			var segment =
-				(action == Doodles.Shapes.prototype.removeShape)?'r':'h';
-			if ( segment == 'h' ) hilighted = true;
-			segment += (subsequentSiblings?'t':'f')+(sorted?'t':'f');
-			var children = this.doodles;
-			for ( var i = 0 ; i < list.length ; ++ i )
-				segment += ','+Array.prototype.indexOf.call(children,list[i]);
-			push( segment ); }
+			var remove = ( action == Doodles.Shapes.prototype.removeShape );
+			var array = ''; var children = this.doodles;
+			var i = (sorted && subsequentSiblings ? 0 : list.length - 1);
+			for ( ; i >= 0 ; -- i ) {
+				var at = Array.prototype.indexOf.call(children,list[i]);
+				if (at < 0) throw new Error("non-child:"+list[i]);
+				array = ','+at+array; }
+			var segment = ( (remove?'r':'h')
+				+ (subsequentSiblings?'t':'f') + (sorted?'t':'f')
+				+ array.substring(1) );
+			if ( remove ) push( segment ); else {
+				if ( /:u$/.test(buffer) && lastHighlighted == array )
+					buffer = buffer.substring( 0, buffer.length - 2 );
+				else { push( segment ); lastHighlighted = array; }
+				unhilighted = false; } }
 		return Doodles.Shapes.prototype.forSelected.call(
 			this,action,subsequentSiblings,sorted,list); };
 
