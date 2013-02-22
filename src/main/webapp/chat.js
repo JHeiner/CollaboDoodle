@@ -36,7 +36,8 @@ $(function(){
 		var mine = ( user == ChatUser );
 		var info = data[ command ? nick : user ];
 		var color = info ? info.color : null;
-		if ( command == '/nick' ) {
+		switch ( command ) {
+		case '/nick':
 			if ( ! info ) info = data[nick] = {};
 			color = isColor.exec( text );
 			if ( color ) {
@@ -45,10 +46,20 @@ $(function(){
 			else {
 				delete info.color;
 				if ( info.events ) info.events.color.normal =
-					( nick == ChatUser ) ? '#000' : '#666'; } }
+					( nick == ChatUser ) ? '#000' : '#666'; }
+			break;
+		case '/kick':
+			var baddie = text.split(' ')[0];
+			if (data[baddie]) {
+				baddie = data[baddie]; delete data[baddie];
+				if ( baddie.events ) baddie.events.destroy();
+				if ( events == baddie.events ) {
+					ChatInput.disabled = true; buffer = '';
+					events = shapes = null; } } }
 		var matched = isDoodle.test( text );
-		if ( command ) command =
-			'<span class=ChatCommand>'+command+'&nbsp;</span>';
+		if ( command ) {
+			command = '<span class=ChatCommand>'+command+'&nbsp;</span>';
+			user = nick; nick = ''; }
 		if ( nick ) {
 			var redundant = isColor.exec( nick );
 			if ( redundant ) nick =

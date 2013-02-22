@@ -2,8 +2,9 @@
 package code.comet
 
 import scala.xml.{Elem,NodeSeq,Text}
+import scala.collection.mutable
 import net.liftweb.common.{Box,Full,Empty}
-import net.liftweb.http.{SHtml,CometListener,ListenerManager,RenderOut}
+import net.liftweb.http.{S,SHtml,CometListener,ListenerManager,RenderOut,Req}
 import net.liftweb.http.{StatefulComet,CometState,DeltaTrait}
 import net.liftweb.actor.LiftActor
 import net.liftweb.util.AltXML
@@ -16,11 +17,41 @@ extends DeltaTrait
 {
   def toJs:JsCmd = JE.Call( "ChatAppend", user, command, nick, text )
 }
-
-object History
+object Message
 {
-  val empty = History( Nil )
+  val Empty = Message( null, null, null, null )
+
+  def user( id:String, nick:String, text:String ) = {
+	val trimmed = text.trim // empty user messages get dropped
+	if ( trimmed.isEmpty ) Message.Empty else
+	  // user messages never have a command
+      Message( id, "", nick, trimmed ) }
+
+  def admin( command:String, id:String, info:String ) =
+	// admin user is "0", messages always have a command,
+	// and the "nick" is reused to be the id of the instigating user
+    Message( "0", command, id, info )
+
+  val dateTimeRFC822 = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+  val dateTimeFormat = new java.text.SimpleDateFormat( dateTimeRFC822 )
+  def time( id:String ) =
+	admin( "/time", id, dateTimeFormat.format( new java.util.Date ) )
+
+  val serverAddresses = {
+    import java.net.NetworkInterface._
+    import scala.collection.JavaConversions._
+    val (n4,n6) = ( for {
+      i <- getNetworkInterfaces
+      if ! i.isLoopback
+      a <- i.getInetAddresses }
+      yield a )
+		.toList.partition{ _.isSiteLocalAddress }
+    val ns = ( if ( n4.nonEmpty ) n4 else n6 ).map{ _.getHostAddress }
+	ns.mkString( ", " ) }
+  def trace( id:String ) =
+	admin( "/trace", id, serverAddresses )
 }
+
 case class History( messages:List[Message] )
 extends CometState[Message,History]
 with net.liftweb.common.Logger
@@ -43,11 +74,15 @@ with net.liftweb.common.Logger
     messages.foldRight( setUser ) {
       ( m, j ) => JsCmds.CmdPair( j, m.toJs ) } }
 }
-
-case class Input( chat:Chat, doodle:Boolean, dangerous:String )
+object History
+{
+  val empty = History( Nil )
+  val initial = empty + Message.time("") + Message.trace("")
+}
 
 class Chat
-extends StatefulComet with CometListener
+extends StatefulComet
+with net.liftweb.common.Logger
 {
   type Delta = Message
   type State = History
@@ -56,79 +91,47 @@ extends StatefulComet with CometListener
     case g:History => Full( g )
     case _ => Empty }
 
-  def registerWith = ChatServer
-  val user = ChatServer.userCount.incrementAndGet.toString
-  var nick = ""
-  def sendInput( s:String ) { ChatServer ! Input( this, false, s ) }
-  def sendDoodle( s:String ) { ChatServer ! Input( this, true, s ) }
+  override def sendInitialReq_? = true
+  var remoteAddress = Option.empty[String];
+  def superuser = remoteAddress.exists( _ == "127.0.0.1" )
+  override def captureInitialReq( req:Box[Req] ) { req.map { r =>
+	remoteAddress = Option( r.request ).map{ _.remoteAddress } }}
+
+  var user = "" ; var nick = "" ; var allowed = true
+
+  def userMessage( text:String ) = Message.user( user, nick, text )
+  def timeMessage = Message.time( user )
+  def traceMessage = Message.trace( user )
+  def adminMessage( command:String, info:String ) =
+	Message.admin( command, user, info )
+
+  def sendChars( dangerous:String ) { sendInput( false, dangerous ) }
+  def sendDoodle( dangerous:String ) { sendInput( true, dangerous ) }
+  def sendInput( doodle:Boolean, dangerous:String ) {
+	if ( ! allowed ) return
+	val trimmed = dangerous.trim
+	if ( trimmed.nonEmpty )
+	  ChatServer ! Input( this, doodle, trimmed ) }
 
   override def render:RenderOut = Seq(
-    SHtml.ajaxForm( SHtml.text( "", sendInput, "id"->"ChatInput" ),
+    SHtml.ajaxForm( SHtml.text( "", sendChars, "id"->"ChatInput" ),
                     JsCmds.Noop, JE.JsRaw( "ChatInput.value=''" ) ),
-    SHtml.ajaxForm( SHtml.hidden( sendDoodle _, "doodle", "id"->"ChatHidden" ),
+    SHtml.ajaxForm( SHtml.hidden( sendDoodle _, "", "id"->"ChatHidden" ),
                     JsCmds.Noop, JE.JsRaw( "ChatCheck()" ) ),
     JsCmds.Script( state.toJs( user ) ) )
+
+  ChatServer ! Add( this )
 }
-object ChatServer
-extends LiftActor with ListenerManager
+
+case class Add( chat:Chat )
+case class Remove( chat:Chat )
+
+case class Input( chat:Chat, doodle:Boolean, dangerous:String )
 {
-  val userCount = new java.util.concurrent.atomic.AtomicInteger
+  def parse:Message = {
 
-  def userMessage( chat:Chat, text:String ) =
-    Message( chat.user, "", chat.nick, text )
-  def adminMessage( command:String, user:String, info:String ) =
-    Message( "0", command, user, info )
-
-  val dateRFC822 = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-  val dateSimple = new java.text.SimpleDateFormat( dateRFC822 )
-  def dateCurrent = dateSimple.format( new java.util.Date )
-  def timeMessage( user:String ) = adminMessage( "/time", user, dateCurrent )
-
-  def traceMessage( user:String ) = {
-    import java.net.NetworkInterface._
-    import scala.collection.JavaConversions._
-    val (n4,n6) = ( for {
-      i <- getNetworkInterfaces
-      if ! i.isLoopback
-      a <- i.getInetAddresses }
-      yield a ).toList.partition{ _.isSiteLocalAddress }
-    val ns = ( if ( n4.nonEmpty ) n4 else n6 ).map{ _.getHostAddress }
-    adminMessage( "/trace", user, ns.mkString( ", " ) ) }
-
-  private var history = History.empty + timeMessage("0") + traceMessage("0")
-  private def addMessage( m:Message ) { history += m ; updateListeners() }
-  def createUpdate = history
-
-  override def lowPriority = {
-    case Input( chat, doodle, dangerous ) =>
-      val trimmed = noInputDoodle( doodle, escape( dangerous ).trim )
-      var space = trimmed.indexOf(' ')
-      if ( space < 0 ) space = trimmed.length
-      val before = trimmed.substring( 0, space ).toLowerCase
-      val after = trimmed.substring( space ).trim
-      val admin = before match {
-        case "&#x2f;nick" =>
-          val nick = chat.nick
-          val into = if ( after == nick ) "" else (" \u27a1 "+after)
-          if ( into.nonEmpty ) chat.nick = after
-          Some( adminMessage( "/nick", chat.user, nick+into ) )
-        case "&#x2f;time" =>
-          if ( after.nonEmpty ) None else
-            Some( timeMessage( chat.user ) )
-        case "&#x2f;trace" =>
-          if ( after.nonEmpty ) None else
-            Some( traceMessage( chat.user ) )
-        case _ => None }
-      if ( admin.nonEmpty )
-        addMessage( admin.get ) // admin might have empty text
-      else if ( trimmed.nonEmpty ) // but empty user messages are dropped
-        addMessage( userMessage( chat, trimmed ) ) }
-
-  def noInputDoodle( doodle:Boolean, trimmed:String ) =
-	if ( doodle || ! trimmed.startsWith("doodle:") ) trimmed
-	else "doodle :"+trimmed.substring(7);
-
-  def escape( dangerous:String ) = {
+	// dangerous was already trimmed by Chat.sendInput,
+	// assume escaping doesn't add whitespace to either end...
     val builder = new StringBuilder( dangerous.length )
     AltXML.toXML( Text(dangerous), null, builder, false, false )
     var i = builder.length - 1
@@ -137,5 +140,65 @@ extends LiftActor with ListenerManager
       case '\'' => builder.replace( i, i+1, "&#x27;" )
       case '/' => builder.replace( i, i+1, "&#x2F;" )
       case _ => } ; i -= 1 }
-    builder.result }
+
+	if ( doodle )
+	  return chat.userMessage( builder.result )
+
+	val front = builder.substring( 0, builder.length min 12 ).toLowerCase
+
+	if ( front.startsWith( "doodle:" ) ) {
+	  builder.insert( 6, ' ' ) // foil attempts to type doodles
+	  return chat.userMessage( builder.result ) }
+
+    if ( front == "&#x2f;time" )
+      return chat.timeMessage
+
+	if ( front == "&#x2f;trace" )
+	  return chat.traceMessage
+
+    if ( front.startsWith( "&#x2f;nick" )
+		&& ( builder.length == 10 || builder.charAt( 10 ).isWhitespace ) ) {
+      val oldnick = chat.nick ; chat.nick = builder.substring( 10 ).trim
+      val into = if ( chat.nick == oldnick ) "" else (" \u27a1 "+chat.nick)
+      return chat.adminMessage( "/nick", oldnick+into ) }
+
+	if ( front.startsWith( "&#x2f;kick" ) && chat.superuser
+		&& builder.length > 10 && builder.charAt( 10 ).isWhitespace ) {
+	  val kick = ChatServer.parseKick( chat, builder.substring( 10 ).trim )
+	  if ( kick.nonEmpty ) return kick.get }
+
+	return chat.userMessage( builder.result ) }
+}
+
+object ChatServer
+extends LiftActor
+{
+  private var history = History.initial
+  private var userCounter = 0
+  private val listenerMap = new mutable.HashMap[String,Chat]
+
+  protected def messageHandler = {
+	case Add( chat ) =>
+	  userCounter += 1
+	  chat.user = userCounter.toString
+	  listenerMap( chat.user ) = chat
+	  chat ! history
+	case Remove( chat ) =>
+	  listenerMap.remove( chat.user )
+    case input @ Input( chat, _, _ ) =>
+	  if ( chat.allowed ) {
+	  val message = input.parse
+	  if ( message != Message.Empty ) {
+	  history += message
+	  for ( chat <- listenerMap.values ) chat ! history } } }
+
+  def parseKick( admin:Chat, who:String ):Option[Message] =
+	for ( baddie <- listenerMap.get( who ) ; if baddie != admin )
+	yield {
+	  val message = admin.adminMessage( "/kick", baddie.user+" "+baddie.nick )
+	  baddie.allowed = false
+	  baddie ! ( history + message
+		 + Message("","","","you have been kicked off the server" ) )
+	  listenerMap.remove( baddie.user )
+	  message }
 }
