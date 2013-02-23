@@ -1,10 +1,11 @@
 
-function ChatAppend( user, command, nick, text ) {
+function ChatAppend( user, text, extra ) {
 	var array = [];
-	function append( user, command, nick, text ) {
-		array.push( [ user, command, nick, text ] ); }
-	append( user, command, nick, text );
-	append.Loaded = array;
+	function append( user, text, extra ) {
+		if ( ! extra ) array.push( [ user, text ] )
+		else array.push( [ user, text, extra ] ); }
+	append( user, text, extra );
+	append.cache = array;
 	// do the above setup once, from then on just do append
 	ChatAppend = append; }
 
@@ -32,21 +33,23 @@ $(function(){
 	var isDoodle =
 		/^doodle(?::(?:u|[dsm]-?\d+,-?\d+|[rh][ft][ft]\d+(,\d+)*))+$/;
 
-	function delta( user, command, nick, text ) {
+	function delta( user, text, extra ) {
 		var mine = ( user == ChatUser );
-		var info = data[ command ? nick : user ];
+		var info = data[user];
 		var color = info ? info.color : null;
-		switch ( command ) {
+		switch ( extra ) {
 		case '/nick':
-			if ( ! info ) info = data[nick] = {};
 			color = isColor.exec( text );
-			if ( color ) {
-				info.color = color = color[0].substring(1);
-				if ( info.events ) info.events.color.normal = color; }
-			else {
+			if ( ! color ) {
 				delete info.color;
-				if ( info.events ) info.events.color.normal =
-					( nick == ChatUser ) ? '#000' : '#666'; }
+				color = mine ? '#000' : '#666';
+				info.nick = text; }
+			else {
+				var arrow = text.indexOf('\u27a1');
+				info.nick = text.substring(arrow+2,color.index) +
+					'<span class="ChatNickColor">'+color[0]+'</span>';
+				info.color = color = color[0].substring(1); }
+			if ( info.events ) info.events.color.normal = color;
 			break;
 		case '/kick':
 			var baddie = text.split(' ')[0];
@@ -57,19 +60,15 @@ $(function(){
 					ChatInput.disabled = true; buffer = '';
 					events = shapes = null; } } }
 		var matched = isDoodle.test( text );
-		if ( command ) {
-			command = '<span class=ChatCommand>'+command+'&nbsp;</span>';
-			user = nick; nick = ''; }
-		if ( nick ) {
-			var redundant = isColor.exec( nick );
-			if ( redundant ) nick =
-				nick.substring( 0, nick.length - redundant[0].length ) +
-					'<span class="ChatNickColor">'+redundant[0]+'</span>'; }
+		if ( extra )
+			extra = '<span class=ChatCommand>'+extra+'</span>';
+		else {
+			extra = info.nick; if ( ! extra ) extra = ""; }
 		list.append(
 			'<tr class='+( mine ? 'mine' : 'other' )
 				+( color ? ' style=color:'+color : '' )+'>'
 				+'<td class="col1">'+user
-				+'<td class="col2">'+command+nick
+				+'<td class="col2">'+extra
 				+'<td class="col3">'+( matched ? text.small() : text ) );
 		toBottom();
 		if ( ! matched ) return null;
@@ -166,8 +165,8 @@ $(function(){
 
 	var shapes = events.dom.shapes;
 	list.empty();
-	if ( ChatAppend.Loaded )
-		ChatAppend.Loaded.forEach( function( element, index, array ) {
+	if ( ChatAppend.cache )
+		ChatAppend.cache.forEach( function( element, index, array ) {
 			shapes.interpret( delta.apply( null, element ) ); });
 
 	// done with the history replay, so now we put our hooks into our
