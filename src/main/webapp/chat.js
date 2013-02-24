@@ -27,27 +27,35 @@ $(function(){
 	var data = {};
 
 	var events = new Doodles.Events(ChatSVG,window);
-	data[ChatUser] = { events: events };
+	var shapes = events.dom.shapes;
 
 	var isColor = /%#?[0-9A-Za-z]+$/;
 	var isDoodle =
 		/^doodle(?::(?:u|[dsm]-?\d+,-?\d+|[rh][ft][ft]\d+(,\d+)*))+$/;
 
 	function delta( user, text, extra ) {
+		if ( extra == "/time" && user == "0") {
+			for ( var info in data )
+				if ( (info != ChatUser) && data[info].events ) {
+console.log('reset',info,data[info]);
+					data[info].events.destroy(); }
+			data = {}; data[ChatUser] = { events: events };
+			$(shapes.svg).empty();
+			list.empty(); }
 		var mine = ( user == ChatUser );
 		var info = data[user];
+		var nick = info ? info.nick : null; if ( ! nick ) nick = '';
 		var color = info ? info.color : null;
 		switch ( extra ) {
 		case '/nick':
-			color = isColor.exec( text );
+			nick = text.indexOf('\u27a1');
+			if ( ! info ) info = data[user] = {};
+			info.nick = nick = text.substring(nick+2);
+			color = isColor.exec( nick );
 			if ( ! color ) {
-				delete info.color;
-				color = mine ? '#000' : '#666';
-				info.nick = text; }
+				delete info.color; color = mine ? '#000' : '#666'; }
 			else {
-				var arrow = text.indexOf('\u27a1');
-				info.nick = text.substring(arrow+2,color.index) +
-					'<span class="ChatNickColor">'+color[0]+'</span>';
+				info.nick = nick = nick.substring(0,color.index);
 				info.color = color = color[0].substring(1); }
 			if ( info.events ) info.events.color.normal = color;
 			break;
@@ -60,10 +68,7 @@ $(function(){
 					ChatInput.disabled = true; buffer = '';
 					events = shapes = null; } } }
 		var matched = isDoodle.test( text );
-		if ( extra )
-			extra = '<span class=ChatCommand>'+extra+'</span>';
-		else {
-			extra = info.nick; if ( ! extra ) extra = ""; }
+		extra = extra ? '<span class=ChatCommand>'+extra+'</span>' : nick;
 		list.append(
 			'<tr class='+( mine ? 'mine' : 'other' )
 				+( color ? ' style=color:'+color : '' )+'>'
@@ -163,8 +168,6 @@ $(function(){
 	// delta normally ignores the local user's doodling commands.
 	// important that we not see this replay as the user really doodling.
 
-	var shapes = events.dom.shapes;
-	list.empty();
 	if ( ChatAppend.cache )
 		ChatAppend.cache.forEach( function( element, index, array ) {
 			shapes.interpret( delta.apply( null, element ) ); });

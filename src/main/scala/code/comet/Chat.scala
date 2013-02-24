@@ -57,7 +57,8 @@ case class History( messages:List[Message] )
 extends CometState[Message,History]
 with net.liftweb.common.Logger
 {
-  def size = if ( messages.isEmpty ) 0 else messages.head.num
+  def isEmpty = messages.isEmpty
+  def size = if ( isEmpty ) 0 else messages.head.num
 
   def +( m:Message ) = History( m.copy( num = size+1 ) :: messages )
 
@@ -83,7 +84,7 @@ object History
 
 class Chat
 extends StatefulComet
-with net.liftweb.common.Logger
+with net.liftweb.http.NamedCometActorTrait
 {
   type Delta = Message
   type State = History
@@ -91,6 +92,8 @@ with net.liftweb.common.Logger
   def testState( in:Any ):Box[State] = in match {
     case g:History => Full( g )
     case _ => Empty }
+  override def lowPriority = {
+	case Clear => state = emptyState }
 
   override def sendInitialReq_? = true
   var remoteAddress = Option.empty[String];
@@ -127,11 +130,13 @@ with net.liftweb.common.Logger
 case class Add( chat:Chat )
 case class Remove( chat:Chat )
 case class Input( chat:Chat, doodle:Boolean, text:String )
+case object Clear
 
 object ChatServer
 extends LiftActor
+with net.liftweb.common.Logger
 {
-  private var history = History.initial
+  private var history = History.empty
   private var userCounter = 0
   private val listenerMap = new mutable.HashMap[String,Chat]
 
@@ -140,15 +145,19 @@ extends LiftActor
 	  userCounter += 1
 	  chat.user = userCounter.toString
 	  listenerMap( chat.user ) = chat
+	  if ( history.isEmpty ) history = History.initial
 	  chat ! history
 	case Remove( chat ) =>
 	  listenerMap.remove( chat.user )
 	  if ( listenerMap.isEmpty ) history = History.empty
-    case Input( chat, doodle, text ) =>
-	  if ( chat.allowed ) {
+    case Input( chat, doodle, text ) => if ( chat.allowed ) {
 	  val message = parse( chat, doodle, text )
+	  if ( history.isEmpty ) {
+		history = History.initial
+		for ( client <- listenerMap.values ; if client.nick.nonEmpty )
+		history += client.adminMessage( "\u27a1 "+client.nick, "/nick" ) }
 	  history += message
-	  for ( chat <- listenerMap.values ) chat ! history } }
+	  for ( client <- listenerMap.values ) client ! history } }
 
   def parse( chat:Chat, doodle:Boolean, text:String ):Message =
   {
@@ -165,6 +174,11 @@ extends LiftActor
 
 	if ( front == "/trace" )
 	  return chat.traceMessage
+
+	if ( front == "/clear" && chat.superuser ) {
+	  history = History.empty
+	  for ( client <- listenerMap.values ) client ! Clear
+	  return chat.adminMessage( "", "/clear" ); }
 
     if ( front.startsWith( "/nick" )
 		&& ( text.length == 5 || text.charAt( 5 ).isWhitespace ) ) {
