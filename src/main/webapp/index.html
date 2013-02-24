@@ -10,14 +10,12 @@ src="chat.js"></script>
 <style>
 
   #ChatHistory { width:100%; height:90px; overflow:scroll; }
-  #ChatList td { vertical-align:top; }
-  #ChatList .col1 { text-align:right; }
-  #ChatList .col2 { text-align:right; font-style:italic; }
-  #ChatList .ChatCommand { float:left; font-style:normal; }
-  #ChatList .ChatNickColor { display:none; }
-  #ChatList small { font-size:4pt; }
-  #ChatList .mine { color:gray; }
-  #ChatList .other { background-color:#ddd; }
+  #ChatList tr.ChatMine { color:gray; vertical-align:top; }
+  #ChatList tr.ChatOther { background-color:#ddd; vertical-align:top; }
+  #ChatList td:first-child { text-align:right; }
+  #ChatList td:nth-child(2) { text-align:right; font-style:italic; }
+  #ChatList td.ChatCommand { text-align:left; font-style:normal; }
+  #ChatList td.ChatDoodle { font-size:4pt; vertical-align:middle; }
   #ChatAutoScroll { position:absolute;bottom:0;right:0;margin:0; }
   #ChatInput { width:99%; }
   #ChatSVG { width:800px; height:600px; background-color:#eee; }

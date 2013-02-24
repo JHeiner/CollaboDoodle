@@ -24,61 +24,56 @@ $(function(){
 	// from that point on deltas come from the server via ajax.
 
 	var list = $(ChatList);
-	var data = {};
+	var data = null;
 
 	var events = new Doodles.Events(ChatSVG,window);
 	var shapes = events.dom.shapes;
 
-	var isColor = /%#?[0-9A-Za-z]+$/;
-	var isDoodle =
-		/^doodle(?::(?:u|[dsm]-?\d+,-?\d+|[rh][ft][ft]\d+(,\d+)*))+$/;
-
 	function delta( user, text, extra ) {
-		if ( extra == "/time" && user == "0") {
-			for ( var info in data )
-				if ( (info != ChatUser) && data[info].events ) {
-console.log('reset',info,data[info]);
-					data[info].events.destroy(); }
-			data = {}; data[ChatUser] = { events: events };
+		var mine = ( user == ChatUser );
+		var doodle = false;
+		switch ( extra ) {
+		case "/time": if ( user == "0" ) {
+			for ( var info in data ) if ( info != ChatUser ) {
+				info = data[info];
+				if ( info.events ) info.events.destroy(); }
+			data = {}; data[ChatUser] = { events: events, nick: '' };
 			$(shapes.svg).empty();
 			list.empty(); }
-		var mine = ( user == ChatUser );
-		var info = data[user];
-		var nick = info ? info.nick : null; if ( ! nick ) nick = '';
-		var color = info ? info.color : null;
-		switch ( extra ) {
-		case '/nick':
-			nick = text.indexOf('\u27a1');
-			if ( ! info ) info = data[user] = {};
-			info.nick = nick = text.substring(nick+2);
-			color = isColor.exec( nick );
+		case '/nick': case 'joined':
+			var info = data[user] || ( data[user] = {} );
+			info.nick = text;
+			var color = /%#?[0-9A-Za-z]+$/.exec( text );
 			if ( ! color ) {
 				delete info.color; color = mine ? '#000' : '#666'; }
 			else {
-				info.nick = nick = nick.substring(0,color.index);
+				info.nick = text.substring(0,color.index);
 				info.color = color = color[0].substring(1); }
 			if ( info.events ) info.events.color.normal = color;
 			break;
-		case '/kick':
-			var baddie = text.split(' ')[0];
-			if (data[baddie]) {
-				baddie = data[baddie]; delete data[baddie];
-				if ( baddie.events ) baddie.events.destroy();
-				if ( events == baddie.events ) {
-					ChatInput.disabled = true; buffer = '';
-					events = shapes = null; } } }
-		var matched = isDoodle.test( text );
-		extra = extra ? '<span class=ChatCommand>'+extra+'</span>' : nick;
+		case '/kick': if (data[text]) {
+			var info = data[text]; delete data[text];
+			if ( info.events ) info.events.destroy();
+			if ( events == info.events ) {
+				ChatInput.disabled = true; buffer = '';
+				events = shapes = null; } }
+		case undefined:
+			doodle =
+				/^doodle(?::(?:u|[dsm]-?\d+,-?\d+|[rh][ft][ft]\d+(?:,\d+)*))+$/
+				.test( text ); }
+		var info = data[user];
+		var nick = info ? info.nick : '';
+		var color = info && info.color;
 		list.append(
-			'<tr class='+( mine ? 'mine' : 'other' )
+			'<tr class='+( mine ? 'ChatMine' : 'ChatOther' )
 				+( color ? ' style=color:'+color : '' )+'>'
-				+'<td class="col1">'+user
-				+'<td class="col2">'+extra
-				+'<td class="col3">'+( matched ? text.small() : text ) );
+				+'<td>'+user
+				+'<td'+(extra?' class=ChatCommand':'')+'>'+(extra?extra:nick)
+				+'<td'+(doodle?' class=ChatDoodle':'')+'>'+text );
 		toBottom();
-		if ( ! matched ) return null;
+		if ( ! doodle ) return null;
 		if ( mine ) return text;
-		if ( ! info ) info = data[user] = {}; // never [nick] if matched
+		if ( ! info ) info = data[user] = { nick: '' };
 		if ( ! info.events ) {
 			info.events = new Doodles.Events(ChatSVG,window);
 			ChatSVG.insertBefore( info.events.dom.undoCTM, events.dom.undoCTM );

@@ -71,10 +71,9 @@ with net.liftweb.common.Logger
     error( "!!! render should not be called, Chat renders the history" )
     NodeSeq.Empty }
 
-  def toJs( user:String ):JsCmd = {
-    val setUser:JsCmd = JsCmds.JsCrVar( "ChatUser", user )
-    messages.foldRight( setUser ) {
-      ( m, j ) => JsCmds.CmdPair( j, m.toJs ) } }
+  def toJs( first:JsCmd ):JsCmd =
+    messages.foldRight( first ) {
+      ( m, j ) => JsCmds.CmdPair( j, m.toJs ) }
 }
 object History
 {
@@ -101,12 +100,16 @@ with net.liftweb.http.NamedCometActorTrait
   override def captureInitialReq( req:Box[Req] ) { req.map { r =>
 	remoteAddress = Option( r.request ).map{ _.remoteAddress } }}
 
-  var user = "" ; var nick = "" ; var allowed = true
+  val user = ChatServer.issueUserID
+  var nick = "" ; var allowed = true
 
   def userMessage( text:String ) = Message( user, text )
   def timeMessage = Message.time( user )
   def traceMessage = Message.trace( user )
   def adminMessage( text:String, extra:String ) = Message( user, text, extra )
+  def nickMessage = adminMessage( nick, "/nick" )
+  def joinMessage = adminMessage( nick, "joined" )
+  def leftMessage = adminMessage( nick, "left" )
 
   def sendChars( dangerous:String ) { sendInput( false, dangerous ) }
   def sendDoodle( dangerous:String ) { sendInput( true, dangerous ) }
@@ -121,7 +124,7 @@ with net.liftweb.http.NamedCometActorTrait
                     JsCmds.Noop, JE.JsRaw( "ChatInput.value=''" ) ),
     SHtml.ajaxForm( SHtml.hidden( sendDoodle _, "", "id"->"ChatHidden" ),
                     JsCmds.Noop, JE.JsRaw( "ChatCheck()" ) ),
-    JsCmds.Script( state.toJs( user ) ) )
+    JsCmds.Script( state.toJs( JsCmds.JsCrVar( "ChatUser", user ) ) ) )
 
   override def localSetup() { ChatServer ! Add( this ) }
   override def localShutdown() { ChatServer ! Remove( this ) }
@@ -136,28 +139,33 @@ object ChatServer
 extends LiftActor
 with net.liftweb.common.Logger
 {
-  private var history = History.empty
-  private var userCounter = 0
+  private val userCounter = new java.util.concurrent.atomic.AtomicInteger
+  def issueUserID = userCounter.incrementAndGet.toString
+
   private val listenerMap = new mutable.HashMap[String,Chat]
+  private var history = History.empty
+  private def addMessage( m:Message ) {
+	history += m ; for ( client <- listenerMap.values ) client ! history }
 
   protected def messageHandler = {
+
 	case Add( chat ) =>
-	  userCounter += 1
-	  chat.user = userCounter.toString
 	  listenerMap( chat.user ) = chat
 	  if ( history.isEmpty ) history = History.initial
-	  chat ! history
+	  addMessage( chat.joinMessage )
+
 	case Remove( chat ) =>
-	  listenerMap.remove( chat.user )
+	  val changed = listenerMap.remove( chat.user ).nonEmpty
 	  if ( listenerMap.isEmpty ) history = History.empty
+	  else if ( changed ) addMessage( chat.leftMessage )
+
     case Input( chat, doodle, text ) => if ( chat.allowed ) {
 	  val message = parse( chat, doodle, text )
 	  if ( history.isEmpty ) {
 		history = History.initial
-		for ( client <- listenerMap.values ; if client.nick.nonEmpty )
-		history += client.adminMessage( "\u27a1 "+client.nick, "/nick" ) }
-	  history += message
-	  for ( client <- listenerMap.values ) client ! history } }
+		for ( client <- listenerMap.values )
+		  history += client.joinMessage }
+	  addMessage( message ) } }
 
   def parse( chat:Chat, doodle:Boolean, text:String ):Message =
   {
@@ -182,9 +190,8 @@ with net.liftweb.common.Logger
 
     if ( front.startsWith( "/nick" )
 		&& ( text.length == 5 || text.charAt( 5 ).isWhitespace ) ) {
-      val oldnick = chat.nick ; chat.nick = text.substring( 5 ).trim
-      val into = if ( chat.nick == oldnick ) "" else (" \u27a1 "+chat.nick)
-      return chat.adminMessage( (oldnick+into).trim, "/nick" ) }
+      chat.nick = text.substring( 5 ).trim
+      return chat.nickMessage }
 
 	if ( front.startsWith( "/kick" ) && chat.superuser
 		&& text.length > 5 && text.charAt( 5 ).isWhitespace ) {
@@ -192,7 +199,7 @@ with net.liftweb.common.Logger
 		baddie <- listenerMap.get( text.substring( 5 ).trim )
 		if baddie != chat }
 	  yield {
-		val message = chat.adminMessage( baddie.user+" "+baddie.nick, "/kick" )
+		val message = chat.adminMessage( baddie.user, "/kick" )
 		baddie.allowed = false
 		baddie ! ( history + message
 				   + Message("0","you have been kicked off the server" ) )
